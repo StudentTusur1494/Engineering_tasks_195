@@ -1,0 +1,90 @@
+import numpy as np
+import matplotlib.pyplot as plt
+# Магнитная постоянная, Гн/м
+mu0 = 4 * np.pi * 1e-7
+
+# Электрическая постоянная, Ф/м
+eps0 = 8.85e-12
+
+# Волновое сопротивление свободного пространства, Ом
+Z0 = 120.0 * np.pi
+def calc_shield_se(freq, table):
+    """
+    freq  — 1D массив частот, Гц
+    table — 2D массив (N_слоёв, 5): [mu_r, eps_r, sigma, t, type]
+            type: 1 — металл, 2 — композит
+    Возвращает: SE — 1D массив, дБ
+    """
+    if table.ndim == 1:
+        table = table[np.newaxis, :]
+
+    n_layers = table.shape[0]
+    SE = np.zeros(len(freq))
+
+    for i in range(len(freq)):
+        w = 2.0 * np.pi * freq[i]
+        A_total = np.eye(2, dtype=complex)
+
+        for v in range(n_layers):
+            mu_r, eps_r, sigma_v, t_v, mat_type = table[v]
+            Ma = mu_r * mu0
+            Ea = eps_r * eps0
+
+            if int(mat_type) == 1:
+                z = np.sqrt((1j * w * Ma) / (sigma_v + 1j * w * Ea))
+                g = np.sqrt((1j * w * Ma) * (sigma_v + 1j * w * Ea))
+            else:
+                sig_comp = w * eps0 * np.imag(eps_r)
+                z = (1 + 1j) * np.sqrt(w * Ma / (sig_comp + 1e-30))
+                g = 1j * np.sqrt(w * Ma * (sig_comp + 1j * w * eps0 * np.real(eps_r)))
+
+            A_layer = np.array([
+                [np.cosh(g * t_v), z * np.sinh(g * t_v)],
+                [np.sinh(g * t_v) / z, np.cosh(g * t_v)]
+            ], dtype=complex)
+
+            A_total = A_total @ A_layer
+
+        T = 2 * Z0 / (A_total[1, 0] * Z0**2 + A_total[1, 1] * Z0 +
+                       A_total[0, 0] * Z0 + A_total[0, 1])
+        SE[i] = 20.0 * np.log10(np.abs(1.0 / T))
+
+    return SE
+    # 300 точек от 1 кГц до 10 МГц
+freq = np.linspace(1e3, 10e6, 300)
+
+# Каждая строка: [mu_r, eps_r, sigma (См/м), t (м), type]
+shield_1 = np.array([[1.0,   1.0, 10e6,  1e-4, 1]])
+shield_2 = np.array([[1.0,   1.0, 57e6,  1e-4, 1]])
+shield_3 = np.array([[50.0,  1.0, 30e6,  1e-4, 1]])
+shield_4 = np.array([[100.0, 1.0, 57e6,  1e-4, 1]])
+shield_5 = np.array([[100.0, 1.0, 100e6, 1e-4, 1]])
+
+shields = [shield_1, shield_2, shield_3, shield_4, shield_5]
+
+names = [
+    "μ=1, σ=10M",
+    "μ=1, σ=57M",
+    "μ=50, σ=30M",
+    "μ=100, σ=57M",
+    "μ=100, σ=100M",
+]
+
+# Результат — 2D массив (5 экранов × 300 частот)
+N = len(shields)
+SE_all = np.zeros((N, len(freq)))
+
+for i in range(N):
+    SE_all[i] = calc_shield_se(freq, shields[i])
+    print(f"{names[i]:>15s}:  min={np.min(SE_all[i]):.0f} дБ,  max={np.max(SE_all[i]):.0f} дБ")
+
+plt.figure(figsize=(10, 5))
+for i in range(N):
+    plt.plot(freq / 1e6, SE_all[i], linewidth=1.5, label=names[i])
+plt.xlabel('Частота, МГц')
+plt.ylabel('SE, дБ')
+plt.title('Эффективность экранирования')
+plt.legend(fontsize=8)
+plt.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.show()
