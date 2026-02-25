@@ -1,0 +1,39 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+L = 10e-3
+C = 1e-6
+R = 10
+F0_znach = 31830988.618379068
+W0_znach = 50000000
+Q_znach = 10
+delta_f_znach = 0.15707963267948966
+
+def f0(L, C):
+    return 1 / (2 * np.pi * (L * C) ** 1/2)
+def w0(L, C):
+    return 1 / (L * C) ** 1/2
+def Q(R, L, C):
+    return 1/R * (L/C) ** 0.5
+def delta_f(R, L):
+    return R/2 * np.pi * L
+def f1(Q):
+    return f0(-1/2 * Q_znach + ((1 / 4 * (Q_znach)* 2) + 1)* 0.5)
+def f2(Q):
+    return f0(1/2 * Q_znach + ((1 / 4 * (Q_znach)* 2) + 1)* 0.5)
+def x(f, f0):
+    return f / f0
+def ACHH(f):
+    return abs(1/np.sqrt(1 + Q_znach**2 * (f/F0_znach - F0_znach/f)**2))
+def ACCH_D(f):
+    return abs(-10 * np.log(1 + Q_znach**2 * (f/F0_znach - F0_znach/f)**2))
+def U(f):
+    return - np.arctan(Q_znach(f/F0_znach - F0_znach/f))
+
+f = np.linspace(F0_znach/5, F0_znach*5, 2000)
+x = np.linspace(abs(1/np.sqrt(1 + Q_znach**2 * (f/F0_znach - F0_znach/f)**2)), 500)
+
+plt.plot(abs(1/np.sqrt(1 + Q_znach**2 * (f/F0_znach - F0_znach/f)**2)),f)
+
+plt.show()
