@@ -1,0 +1,214 @@
+import numpy as np
+import time
+import matplotlib.pyplot as plt
+
+# ЧАСТЬ 2
+# Магнитная постоянная, Гн/м
+mu0 = 4 * np.pi * 1e-7
+
+# Электрическая постоянная, Ф/м
+eps0 = 8.85e-12
+
+# Волновое сопротивление свободного пространства, Ом
+Z0 = 120.0 * np.pi
+
+
+def calc_shield_se(freq, table):
+    """
+    freq  — 1D массив частот, Гц
+    table — 2D массив (N_слоёв, 5): [mu_r, eps_r, sigma, t, type]
+            type: 1 — металл, 2 — композит
+    Возвращает: SE — 1D массив, дБ
+    """
+    if table.ndim == 1:
+        table = table[np.newaxis, :]
+
+    n_layers = table.shape[0]
+    SE = np.zeros(len(freq))
+
+    for i in range(len(freq)):
+        w = 2.0 * np.pi * freq[i]
+        A_total = np.eye(2, dtype=complex)
+
+        for v in range(n_layers):
+            mu_r, eps_r, sigma_v, t_v, mat_type = table[v]
+            Ma = mu_r * mu0
+            Ea = eps_r * eps0
+
+            if int(mat_type) == 1:
+                z = np.sqrt((1j * w * Ma) / (sigma_v + 1j * w * Ea))
+                g = np.sqrt((1j * w * Ma) * (sigma_v + 1j * w * Ea))
+            else:
+                sig_comp = w * eps0 * np.imag(eps_r)
+                z = (1 + 1j) * np.sqrt(w * Ma / (sig_comp + 1e-30))
+                g = 1j * np.sqrt(w * Ma * (sig_comp + 1j * w * eps0 * np.real(eps_r)))
+
+            A_layer = np.array([
+                [np.cosh(g * t_v), z * np.sinh(g * t_v)],
+                [np.sinh(g * t_v) / z, np.cosh(g * t_v)]
+            ], dtype=complex)
+
+            A_total = A_total @ A_layer
+
+        T = 2 * Z0 / (A_total[1, 0] * Z0**2 + A_total[1, 1] * Z0 +
+                       A_total[0, 0] * Z0 + A_total[0, 1])
+        SE[i] = 20.0 * np.log10(np.abs(1.0 / T))
+
+    return SE
+
+
+# 300 точек от 1 кГц до 10 МГц
+freq = np.linspace(1e3, 1e7, 300)
+
+# Каждая строка: [mu_r, eps_r, sigma (См/м), t (м), type]
+shield_1 = np.array([[1.0,   1.0, 10e6,  1e-4, 1]])
+shield_2 = np.array([[1.0,   1.0, 57e6,  1e-4, 1]])
+shield_3 = np.array([[50.0,  1.0, 30e6,  1e-4, 1]])
+shield_4 = np.array([[100.0, 1.0, 57e6,  1e-4, 1]])
+shield_5 = np.array([[100.0, 1.0, 100e6, 1e-4, 1]])
+
+shields = [shield_1, shield_2, shield_3, shield_4, shield_5]
+
+names = [
+    "μ=1, σ=10M",
+    "μ=1, σ=57M",
+    "μ=50, σ=30M",
+    "μ=100, σ=57M",
+    "μ=100, σ=100M",
+]
+
+# Результат — 2D массив (5 экранов × 300 частот)
+N = len(shields)
+SE_all = np.zeros((N, len(freq)))
+
+for i in range(N):
+    SE_all[i] = calc_shield_se(freq, shields[i])
+    print(f"{names[i]:>15s}:  min={np.min(SE_all[i]):.0f} дБ,  max={np.max(SE_all[i]):.0f} дБ")
+
+print(f"\nSE_all.shape = {SE_all.shape}")
+
+
+plt.figure(figsize=(10, 5))
+for i in range(N):
+    plt.plot(freq / 1e6, SE_all[i], linewidth=1.5, label=names[i])
+plt.xlabel('Частота, МГц')
+plt.ylabel('SE, дБ')
+plt.title('Эффективность экранирования')
+plt.legend(fontsize=8)
+plt.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.show()
+
+
+
+# ЧАСТЬ 3
+# 5 уровней нормы
+gost_levels = np.array([100, 200, 300, 400, 500], dtype=float)
+
+# Горизонтальные линии, каждый "ГОСТ" должен состоять из 300 точек
+gost_masks = np.array([np.full(300, 100), np.full(300,200), np.full(300, 300), np.full(300, 400), np.full(300, 500)])
+
+
+plt.figure(figsize=(10, 5))
+
+## Выести график частотных зависимостей ЭЭ + линии "ГОСТ" на одном рисунке
+
+plt.xlabel('Частота, МГц')
+plt.ylabel('SE, дБ')
+plt.title('ЭЭ экранов и нормы ГОСТ')
+plt.show()
+
+
+# Норма 100 дБ
+mask_100 = 100
+
+# Где экран под номером 1 проходит норму 100 дБ
+compliance = SE_all[0] >= mask_100
+
+print(f"Экран: {names[0]}")
+print(f"Норма: {int(gost_levels[0])} дБ")
+print(f"Прошло точек: {np.sum(compliance)} из {len(freq)}")
+print(f"Все прошли?   {np.all(compliance)}")
+
+
+# SE_all: (5, 300), mask_100: (300,) → результат: (5, 300)
+comp_matrix = SE_all >= mask_100
+
+# Прошёл ли каждый экран на ВСЕХ частотах
+passes = np.all(comp_matrix, axis=1)
+
+print(f"Норма: {int(gost_levels[0])} дБ")
+for i in range(N):
+    status = "PASS" if passes[i] else "FAIL"
+    print(f"  {names[i]:>15s}: {status}")
+
+
+# SE_all:     (5, 300) → (5, 1, 300)
+# gost_masks: (5, 300) → (1, 5, 300)
+# Результат:              (5, 5, 300)
+comp_3d = SE_all[:, np.newaxis, :] >= gost_masks[np.newaxis, :, :]
+
+# Сворачиваем по частотам → (5 экранов × 5 норм)
+result = np.all(comp_3d, axis=2)
+
+# Сводная таблица
+header = f"{'Экран':>15s} |"
+for g in range(len(gost_levels)):
+    header += f" {int(gost_levels[g]):>4d} dB |"
+print(header)
+print("-" * len(header))
+for i in range(N):
+    row = f"{names[i]:>15s} |"
+    for g in range(len(gost_levels)):
+        row += f" {'PASS' if result[i, g] else 'FAIL':>6s} |"
+    print(row)
+
+
+# Норма 200 дБ
+mask_200 = gost_masks[1]
+
+# Разница: (5, 300) - (300,) → (5, 300)
+margin = SE_all - mask_200
+
+# Минимальный запас
+min_margin = np.min(margin, axis=1)
+
+# Частота с минимальным запасом
+worst_freq_idx = np.argmin(margin, axis=1)
+
+print(f"Норма: {int(gost_levels[1])} дБ")
+print(f"{'Экран':>15s} | {'Запас':>10s} | {'Частота':>12s}")
+print("-" * 45)
+for i in range(N):
+    f_w = freq[worst_freq_idx[i]]
+    f_str = f"{f_w/1e6:.2f} МГц" if f_w >= 1e6 else f"{f_w/1e3:.0f} кГц"
+    print(f"{names[i]:>15s} | {min_margin[i]:>+8.0f} dB | {f_str:>12s}")
+
+
+
+# 4 слоя по 0.1 мм
+table_4layer = np.array([
+    [1.0, 1.0, 57e6, 1e-4, 1],   # Cu
+    [1.0, 1.0, 37e6, 1e-4, 1],   # Al
+    [1.0, 1.0, 57e6, 1e-4, 1],   # Cu
+    [1.0, 1.0, 37e6, 1e-4, 1],   # Al
+])
+
+# 1 слой 0.4 мм
+table_1layer = np.array([[1.0, 1.0, 57e6, 4e-4, 1]])
+
+# Расчёт
+SE_4 = calc_shield_se(freq, table_4layer)
+SE_1 = calc_shield_se(freq, table_1layer)
+
+# График
+plt.figure(figsize=(10, 5))
+plt.plot(freq / 1e6, SE_4, label='4 слоя Cu/Al (0.4 мм)')
+plt.plot(freq / 1e6, SE_1, '--', label='1 слой Cu (0.4 мм)')
+plt.xlabel('Частота, МГц')
+plt.ylabel('SE, дБ')
+plt.title('Многослойный vs однослойный экран')
+plt.legend()
+plt.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.show()
